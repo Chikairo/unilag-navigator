@@ -296,8 +296,8 @@ export default function App() {
                     ))
                   ) : !osmSearchLoading && !osmSearchError ? (
                     <div className="no-results">
-                      <strong>No campus place found</strong>
-                      <span>Try a shorter name or search OpenStreetMap.</span>
+                      <strong>No quick-search match</strong>
+                      <span>Press Enter or search OpenStreetMap to find mapped campus places.</span>
                     </div>
                   ) : null}
                   {osmSearchLoading && (

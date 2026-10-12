@@ -9,6 +9,11 @@ npm.cmd install
 npm.cmd run dev
 ```
 
+To open the development site on a phone connected to the same Wi-Fi, use the
+computer's local network address with port `5173` (for example,
+`http://192.168.1.20:5173`). The development server listens on the network;
+Windows Firewall may ask permission the first time.
+
 The map uses OpenStreetMap tiles and OSM campus bounds, with CARTO tiles as a
 fallback if the primary tiles fail. Zoom controls support close inspection
 through native zoom level 18, avoiding blank tiles beyond the base map's
