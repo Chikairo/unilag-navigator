@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowDown,
   ArrowUpRight,
+  Check,
   LocateFixed,
   MapPin,
   Navigation,
@@ -23,8 +24,11 @@ import { distanceBetween, findWalkingRoute, type RouteResult } from "./lib/routi
 
 export default function App() {
   const [origin, setOrigin] = useState<Coordinate>(CAMPUS_CENTER);
+  const [routeAnchor, setRouteAnchor] = useState<Coordinate>(CAMPUS_CENTER);
+  const [manualOrigin, setManualOrigin] = useState<CampusPlace | null>(null);
   const [destination, setDestination] = useState<CampusPlace | null>(null);
   const [query, setQuery] = useState("");
+  const [searchingOrigin, setSearchingOrigin] = useState(false);
   const [route, setRoute] = useState<RouteResult | null>(null);
   const [routeError, setRouteError] = useState("");
   const [routeLoading, setRouteLoading] = useState(false);
@@ -32,12 +36,18 @@ export default function App() {
   const [locating, setLocating] = useState(false);
   const [locationMessage, setLocationMessage] = useState("");
   const [hasCurrentLocation, setHasCurrentLocation] = useState(false);
+  const [arrived, setArrived] = useState(false);
   const [osmSearchResults, setOsmSearchResults] = useState<CampusPlace[]>([]);
   const [osmSearchLoading, setOsmSearchLoading] = useState(false);
   const [osmSearchError, setOsmSearchError] = useState("");
   const [recenterKey, setRecenterKey] = useState(0);
+  const [mobilePlannerOpen, setMobilePlannerOpen] = useState(true);
+  const mapOrigin = manualOrigin?.coordinates ?? origin;
+  const routeOrigin = manualOrigin?.coordinates ?? routeAnchor;
   const lastRouted = useRef<{ origin: Coordinate; destinationId: string } | null>(null);
   const lastGpsUpdate = useRef<Coordinate | null>(null);
+  const lastRouteUpdate = useRef<Coordinate | null>(null);
+  const arrivalNotifiedFor = useRef<string | null>(null);
   const osmSearchController = useRef<AbortController | null>(null);
   const searchPlaces = useMemo(() => createPlaceSearch(CAMPUS_PLACES), []);
   const suggestions = useMemo(() => {
@@ -57,34 +67,37 @@ export default function App() {
       lastRouted.current = null;
       return;
     }
-    if (!isInsideCampus(origin)) {
+    if (!isInsideCampus(routeOrigin)) {
       setRoute(null);
       setRouteError("You’re outside the campus area. Routes are available within UNILAG only.");
       setRouteLoading(false);
+      setMobilePlannerOpen(true);
       lastRouted.current = null;
       return;
     }
     const previous = lastRouted.current;
     if (
       previous?.destinationId === destination.id &&
-      distanceBetween(previous.origin, origin) < 20
+      distanceBetween(previous.origin, routeOrigin) < 50
     ) {
       return;
     }
 
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      lastRouted.current = { origin, destinationId: destination.id };
       setRouteLoading(true);
       setRouteError("");
-      void findWalkingRoute(origin, destination.coordinates, controller.signal)
+      void findWalkingRoute(routeOrigin, destination.coordinates, controller.signal)
         .then((result) => {
+          if (controller.signal.aborted) return;
+          lastRouted.current = { origin: routeOrigin, destinationId: destination.id };
           setRoute(result);
           setRouteError("");
         })
         .catch((error: unknown) => {
           if (error instanceof DOMException && error.name === "AbortError") return;
           setRoute(null);
+          setMobilePlannerOpen(true);
           setRouteError(
             error instanceof Error ? error.message : "The walking route could not be calculated.",
           );
@@ -98,51 +111,120 @@ export default function App() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [destination, origin, tracking]);
+  }, [destination, routeOrigin, tracking]);
+
+  useEffect(() => {
+    setArrived(false);
+    arrivalNotifiedFor.current = null;
+  }, [destination?.id]);
 
   useEffect(() => {
     if (!tracking) return;
+    if (!window.isSecureContext) {
+      setLocationMessage(
+        "Location needs a secure HTTPS connection. Open the published app link or use localhost.",
+      );
+      setTracking(false);
+      return;
+    }
     if (!navigator.geolocation) {
       setLocationMessage("This browser does not support location services.");
       setTracking(false);
       return;
     }
     setLocating(true);
-    setLocationMessage("");
+    setLocationMessage("Waiting for your phone’s location…");
     const watchId = navigator.geolocation.watchPosition(
       (position) => {
         const current: Coordinate = [position.coords.latitude, position.coords.longitude];
-        const previous = lastGpsUpdate.current;
-        if (previous && distanceBetween(previous, current) < 25) return;
-        lastGpsUpdate.current = current;
         setOrigin(current);
         setHasCurrentLocation(true);
         setLocating(false);
+        setRecenterKey((key) => key + 1);
+        if (
+          destination &&
+          distanceBetween(current, destination.coordinates) <= 40 &&
+          arrivalNotifiedFor.current !== destination.id
+        ) {
+          arrivalNotifiedFor.current = destination.id;
+          lastRouteUpdate.current = current;
+          setRouteAnchor(current);
+          setArrived(true);
+          setTracking(false);
+          setLocationMessage("You’re at your destination.");
+          if ("vibrate" in navigator) navigator.vibrate([180, 90, 180]);
+          return;
+        }
         setLocationMessage(
           isInsideCampus(current)
             ? "Live location is on"
             : "You’re outside the UNILAG campus route area",
         );
-        setRecenterKey((key) => key + 1);
+        const previous = lastGpsUpdate.current;
+        if (previous && distanceBetween(previous, current) < 25) return;
+        lastGpsUpdate.current = current;
+        const previousRouteUpdate = lastRouteUpdate.current;
+        if (!previousRouteUpdate || distanceBetween(previousRouteUpdate, current) >= 50) {
+          lastRouteUpdate.current = current;
+          setRouteAnchor(current);
+        }
       },
       (error) => {
         setLocating(false);
         setTracking(false);
         setLocationMessage(
           error.code === error.PERMISSION_DENIED
-            ? "Location access was denied. Enable it in your browser to use live location."
-            : "Your location could not be determined. Please try again.",
+            ? "Location access was denied. Allow location in your browser and phone settings, then try again."
+            : error.code === error.TIMEOUT
+              ? "Your phone took too long to get a location fix. Check that Location is on and try again."
+              : "Your phone couldn’t determine your location. Check that Location is on and try again.",
         );
       },
-      { enableHighAccuracy: true, maximumAge: 5_000, timeout: 15_000 },
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 30_000 },
     );
     return () => navigator.geolocation.clearWatch(watchId);
-  }, [tracking]);
+  }, [destination, tracking]);
 
   const chooseDestination = (place: CampusPlace) => {
+    setSearchingOrigin(false);
     setDestination(place);
+    if (tracking) {
+      lastRouteUpdate.current = origin;
+      setRouteAnchor(origin);
+    }
+    setArrived(false);
+    arrivalNotifiedFor.current = null;
     setQuery("");
     setRouteError("");
+    setMobilePlannerOpen(false);
+  };
+
+  const choosePlace = (place: CampusPlace) => {
+    if (!searchingOrigin) {
+      chooseDestination(place);
+      return;
+    }
+    setManualOrigin(place);
+    setRouteAnchor(place.coordinates);
+    lastRouteUpdate.current = null;
+    setTracking(false);
+    setLocating(false);
+    setLocationMessage("");
+    setSearchingOrigin(false);
+    setQuery("");
+    setOsmSearchResults([]);
+    setOsmSearchError("");
+    setRecenterKey((key) => key + 1);
+    setMobilePlannerOpen(destination === null);
+  };
+
+  const searchForOrigin = () => {
+    setSearchingOrigin(true);
+    setQuery("");
+    setOsmSearchResults([]);
+    setOsmSearchError("");
+    setOsmSearchLoading(false);
+    osmSearchController.current?.abort();
   };
 
   const searchAllMappedPlaces = () => {
@@ -179,6 +261,11 @@ export default function App() {
       setLocationMessage("Live location paused");
       return;
     }
+    setManualOrigin(null);
+    setSearchingOrigin(false);
+    lastGpsUpdate.current = null;
+    lastRouteUpdate.current = null;
+    setRouteAnchor(origin);
     setTracking(true);
   };
 
@@ -203,16 +290,25 @@ export default function App() {
         </div>
       </header>
 
-      <section className="workspace">
-        <aside className="sidebar">
+      <section className={`workspace${mobilePlannerOpen ? "" : " has-collapsed-planner"}`}>
+        <aside className={`sidebar${mobilePlannerOpen ? "" : " is-planner-collapsed"}`}>
           <div className="sidebar-content">
+            <button
+              className="mobile-planner-close"
+              aria-label="Hide route planner"
+              aria-controls="route-planner"
+              aria-expanded={mobilePlannerOpen}
+              onClick={() => setMobilePlannerOpen(false)}
+            >
+              <X size={17} />
+            </button>
             <div className="eyebrow"><span /> CAMPUS WALKING GUIDE</div>
             <h1>Your next stop,<br />without the guesswork.</h1>
             <p className="intro-copy">
               Find the shortest walk between places at the University of Lagos.
             </p>
 
-            <section className="planner-card" aria-label="Plan a campus route">
+            <section id="route-planner" className="planner-card" aria-label="Plan a campus route">
               <div className="route-fields">
                 <div className="field-icon-column" aria-hidden="true">
                   <span className="origin-field-dot" />
@@ -223,21 +319,30 @@ export default function App() {
                   <div className="location-field origin-field">
                     <span className="field-label">STARTING FROM</span>
                     <div className="field-value-row">
-                      <span>{hasCurrentLocation ? "Your current location" : "UNILAG campus centre"}</span>
-                      {!hasCurrentLocation && <span className="sample-tag">MAP CENTRE</span>}
+                      <span>{manualOrigin?.name ?? (hasCurrentLocation ? "Your current location" : "UNILAG campus centre")}</span>
+                      {!manualOrigin && !hasCurrentLocation && <span className="sample-tag">MAP CENTRE</span>}
+                      <button
+                        className="change-origin"
+                        aria-label="Change starting point"
+                        onClick={searchForOrigin}
+                      >
+                        Change
+                      </button>
                     </div>
                   </div>
                   <div className="field-rule" />
                   <div className="destination-field">
-                    <label className="field-label" htmlFor="destination-search">GOING TO</label>
+                    <label className="field-label" htmlFor="destination-search">
+                      {searchingOrigin ? "STARTING FROM" : "GOING TO"}
+                    </label>
                     <div className="search-input-wrap">
                       <Search size={17} className="search-icon" aria-hidden="true" />
                       <input
                         id="destination-search"
-                        value={destination ? destination.name : query}
+                        value={searchingOrigin ? query : destination ? destination.name : query}
                         onChange={(event) => {
                           osmSearchController.current?.abort();
-                          setDestination(null);
+                          if (!searchingOrigin) setDestination(null);
                           setQuery(event.target.value);
                           setOsmSearchResults([]);
                           setOsmSearchError("");
@@ -250,20 +355,20 @@ export default function App() {
                           }
                         }}
                         onFocus={() => {
-                          if (destination) {
+                          if (!searchingOrigin && destination) {
                             setQuery("");
                             setDestination(null);
                           }
                         }}
-                        placeholder="Search a campus destination"
+                        placeholder={searchingOrigin ? "Search a campus starting place" : "Search a campus destination"}
                         autoComplete="off"
                       />
-                      {(query || destination) && (
+                      {(query || (!searchingOrigin && destination)) && (
                         <button
                           className="clear-search"
-                          aria-label="Clear destination"
+                          aria-label={searchingOrigin ? "Clear starting place search" : "Clear destination"}
                           onClick={() => {
-                            setDestination(null);
+                            if (!searchingOrigin) setDestination(null);
                             setQuery("");
                           }}
                         >
@@ -276,15 +381,15 @@ export default function App() {
               </div>
 
               {query && (
-                <div className="suggestion-list" role="listbox" aria-label="Campus destinations">
+                <div className="suggestion-list" role="listbox" aria-label={searchingOrigin ? "Campus starting places" : "Campus destinations"}>
                   {suggestions.length ? (
                     suggestions.map((place) => (
                       <button
                         className="suggestion"
                         key={place.id}
                         role="option"
-                        aria-selected={destination?.id === place.id}
-                        onClick={() => chooseDestination(place)}
+                        aria-selected={(searchingOrigin ? manualOrigin : destination)?.id === place.id}
+                        onClick={() => choosePlace(place)}
                       >
                         <span className="suggestion-pin"><MapPin size={15} /></span>
                         <span className="suggestion-text">
@@ -350,6 +455,7 @@ export default function App() {
                       onClick={() => {
                         setDestination(null);
                         setRoute(null);
+                        setMobilePlannerOpen(true);
                       }}
                     >
                       <X size={17} />
@@ -410,12 +516,31 @@ export default function App() {
           </footer>
         </aside>
 
+        {!mobilePlannerOpen && (
+          <button
+            className="mobile-planner-open"
+            aria-controls="route-planner"
+            aria-expanded={mobilePlannerOpen}
+            onClick={() => setMobilePlannerOpen(true)}
+          >
+            <Search size={16} />
+            <span>Search destinations</span>
+          </button>
+        )}
+
         <section className="map-panel" aria-label="Map of University of Lagos campus">
+          {arrived && destination && (
+            <div className="arrival-notice" role="status" aria-live="assertive">
+              <span className="arrival-icon"><Check size={17} /></span>
+              <span><strong>You’re here!</strong> You’ve arrived at {destination.name}.</span>
+            </div>
+          )}
           <CampusMap
-            origin={origin}
+            origin={mapOrigin}
             destination={destination}
             route={route}
             recenterKey={recenterKey}
+            tracking={tracking}
             onSelectPlace={chooseDestination}
           />
           <div className="map-top-label">

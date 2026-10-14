@@ -116,6 +116,8 @@ button { color: inherit; }
   scrollbar-color: #d6ddd4 transparent;
 }
 
+.mobile-planner-open, .mobile-planner-close { display: none; }
+
 .eyebrow, .section-kicker {
   color: #819387;
   font-size: 9px;
@@ -164,7 +166,9 @@ h1 {
 .location-field { display: flex; flex-direction: column; justify-content: center; height: 49px; }
 .field-label { color: #9ba29c; font-size: 8px; font-weight: 700; letter-spacing: 1px; }
 .field-value-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; }
-.field-value-row > span:first-child { font-size: 12px; font-weight: 600; color: #35493d; }
+.field-value-row > span:first-child { min-width: 0; overflow: hidden; color: #35493d; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.change-origin { flex: 0 0 auto; padding: 3px 6px; color: #4c765d; background: #f2f6f1; border: 1px solid #e7eee5; border-radius: 5px; font-size: 9px; font-weight: 600; cursor: pointer; }
+.change-origin:hover { background: #eaf2e8; }
 .sample-tag { color: #89918a; background: #f3f5f1; padding: 3px 5px; border-radius: 4px; font-size: 7px; font-weight: 700; letter-spacing: 0.6px; }
 .field-rule { height: 1px; background: #eef0ec; }
 .destination-field { padding-top: 10px; }
@@ -265,6 +269,9 @@ h1 {
 .sidebar-footer { display: flex; justify-content: space-between; padding: 14px 30px; color: #a1a89f; border-top: 1px solid #eff0ec; font-size: 7px; font-weight: 700; letter-spacing: 0.8px; }
 
 .map-panel { position: relative; flex: 1; min-width: 0; background: #e6ebe5; }
+.arrival-notice { position: absolute; z-index: 700; top: 16px; left: 50%; display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100% - 32px); padding: 12px 16px; color: #365541; background: #fbfcf9; border: 1px solid #dce9dc; border-radius: 11px; box-shadow: 0 5px 20px #21372924; font-size: 12px; line-height: 1.45; transform: translateX(-50%); }
+.arrival-notice strong { display: block; color: #2c6041; font-size: 13px; }
+.arrival-icon { display: grid; place-items: center; width: 30px; height: 30px; flex: 0 0 30px; color: #fff; background: #43805b; border-radius: 50%; }
 .campus-map { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; background: #e7ece6; }
 .leaflet-container { font-family: "DM Sans", sans-serif; }
 .leaflet-pane.leaflet-tile-pane { background: #e7ece6; }
@@ -306,6 +313,17 @@ h1 {
   .map-panel { position: absolute; inset: 0; }
   .sidebar { position: absolute; top: 12px; right: 12px; left: 12px; max-height: min(70%, 520px); flex: none; overflow: visible; border: 1px solid #e8ebe5; border-radius: 14px; box-shadow: 0 7px 26px #2137291a; }
   .sidebar-content { max-height: calc(min(70vh, 520px) - 45px); padding: 18px 17px 12px; border-radius: 14px 14px 0 0; }
+  .mobile-planner-close { position: relative; display: grid; place-items: center; width: 31px; height: 31px; margin: -7px -7px 2px auto; padding: 0; color: #607267; background: #f2f5f1; border: 0; border-radius: 8px; cursor: pointer; }
+  .mobile-planner-open { position: absolute; z-index: 600; top: 12px; right: 12px; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 13px; color: #375a46; background: #fbfcf9; border: 1px solid #e6ede5; border-radius: 10px; box-shadow: 0 4px 16px #2137291a; font-size: 11px; font-weight: 600; cursor: pointer; }
+  .sidebar.is-planner-collapsed { display: contents; }
+  .sidebar.is-planner-collapsed .sidebar-content { display: contents; }
+  .sidebar.is-planner-collapsed .sidebar-content > :not(.route-summary),
+  .sidebar.is-planner-collapsed > .sidebar-footer { display: none; }
+  .sidebar.is-planner-collapsed .route-summary { position: fixed; z-index: 600; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); left: 12px; max-height: min(42dvh, 260px); overflow-y: auto; margin: 0; padding: 14px; background: #fbfcf9; border: 1px solid #e8ebe5; border-radius: 13px; box-shadow: 0 7px 26px #21372924; }
+  .sidebar.is-planner-collapsed .route-stats { gap: 14px; margin-top: 12px; padding: 12px; }
+  .sidebar.is-planner-collapsed .route-loading { min-height: 48px; }
+  .workspace.has-collapsed-planner .recenter-button { bottom: calc(175px + env(safe-area-inset-bottom)); }
+  .workspace.has-collapsed-planner .map-legend { display: none; }
   .eyebrow { font-size: 8px; }
   h1 { margin: 9px 0 5px; font-size: 22px; line-height: 1.18; }
   .intro-copy { font-size: 10px; }

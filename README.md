@@ -12,7 +12,15 @@ npm.cmd run dev
 To open the development site on a phone connected to the same Wi-Fi, use the
 computer's local network address with port `5173` (for example,
 `http://192.168.1.20:5173`). The development server listens on the network;
-Windows Firewall may ask permission the first time.
+Windows Firewall may ask permission the first time. Browser geolocation
+requires a secure context, so use the HTTPS GitHub Pages deployment on phones
+instead of the local HTTP network address.
+
+The public app is deployed at
+https://chikairo.github.io/unilag-navigator/. Selecting **Use my current
+location** follows the phone's live position and refreshes the route as the
+user walks. Within approximately 40 metres of the destination, tracking stops
+and the app shows an arrival message and vibrates when the device supports it.
 
 The map uses OpenStreetMap tiles and OSM campus bounds, with CARTO tiles as a
 fallback if the primary tiles fail. Zoom controls support close inspection
@@ -24,8 +32,10 @@ name and use **Search OpenStreetMap** to look up mapped features within the
 campus bounds. This lookup is explicit (not per-keystroke autocomplete) and
 uses OpenStreetMap's Nominatim service. Until geolocation is enabled, the start
 is the mapped University of Lagos campus point, not a simulated Main Gate
-location. Choose **Use my current location** to share browser geolocation and
-keep the starting point updated as you walk.
+location. Choose **Change** next to the starting point to search for a mapped
+campus place and use it as your origin when precise browser location is
+unavailable. Choose **Use my current location** to share browser geolocation
+and keep the starting point updated as you walk.
 
 Each curated destination includes its OpenStreetMap object type and ID in
 `src/data/places.ts`. Places that could not be verified as named OSM features

@@ -24,6 +24,7 @@ type CampusMapProps = {
   destination: CampusPlace | null;
   route: RouteResult | null;
   recenterKey: number;
+  tracking: boolean;
   onSelectPlace: (place: CampusPlace) => void;
 };
 
@@ -59,8 +60,9 @@ function MapBehavior({
   origin,
   route,
   recenterKey,
+  tracking,
   onMissingTiles,
-}: Pick<CampusMapProps, "origin" | "route" | "recenterKey"> & {
+}: Pick<CampusMapProps, "origin" | "route" | "recenterKey" | "tracking"> & {
   onMissingTiles: () => void;
 }) {
   const map = useMap();
@@ -110,11 +112,11 @@ function MapBehavior({
   }, [map, origin, recenterKey]);
 
   useEffect(() => {
-    if (route?.path.length) {
+    if (route?.path.length && !tracking) {
       const routePoints = [...route.path, ...route.connectors.flatMap((connector) => connector)];
       map.fitBounds(L.latLngBounds(routePoints), { padding: [56, 56], maxZoom: 18 });
     }
-  }, [map, route]);
+  }, [map, route, tracking]);
 
   return null;
 }
@@ -124,6 +126,7 @@ export default function CampusMap({
   destination,
   route,
   recenterKey,
+  tracking,
   onSelectPlace,
 }: CampusMapProps) {
   const [useFallbackTiles, setUseFallbackTiles] = useState(false);
@@ -179,6 +182,7 @@ export default function CampusMap({
         origin={origin}
         route={route}
         recenterKey={recenterKey}
+        tracking={tracking}
         onMissingTiles={enableFallbackTiles}
       />
       <Polygon
