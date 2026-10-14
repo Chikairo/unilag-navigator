@@ -14,7 +14,7 @@ export type RouteResult = {
   path: Coordinate[];
   connectors: [Coordinate, Coordinate][];
   distance: number;
-  provider: "OpenRouteService" | "OpenStreetMap paths";
+  provider: "OpenRouteService" | "Valhalla" | "OpenStreetMap paths";
 };
 
 const OVERPASS_URLS = [
@@ -304,15 +304,125 @@ async function routeOnOpenRouteService(
   };
 }
 
+function decodePolyline(encoded: string, precision: number): Coordinate[] {
+  const coordinates: Coordinate[] = [];
+  const factor = 10 ** precision;
+  let index = 0;
+  let latitude = 0;
+  let longitude = 0;
+
+  const decodeValue = (): number => {
+    let value = 0;
+    let shift = 0;
+    let chunk: number;
+    do {
+      if (index >= encoded.length) throw new Error("The walking route geometry is incomplete.");
+      chunk = encoded.charCodeAt(index) - 63;
+      index += 1;
+      value |= (chunk & 0x1f) << shift;
+      shift += 5;
+    } while (chunk >= 0x20);
+    return value & 1 ? ~(value >> 1) : value >> 1;
+  };
+
+  while (index < encoded.length) {
+    latitude += decodeValue();
+    longitude += decodeValue();
+    coordinates.push([latitude / factor, longitude / factor]);
+  }
+  return coordinates;
+}
+
+async function routeOnValhalla(
+  start: Coordinate,
+  end: Coordinate,
+  signal: AbortSignal,
+): Promise<RouteResult> {
+  const parameters = new URLSearchParams({
+    json: JSON.stringify({
+      locations: [
+        { lat: start[0], lon: start[1] },
+        { lat: end[0], lon: end[1] },
+      ],
+      costing: "pedestrian",
+      units: "kilometers",
+    }),
+  });
+  const response = await fetch(
+    `https://valhalla1.openstreetmap.de/route?${parameters.toString()}`,
+    { signal },
+  );
+  if (!response.ok) {
+    throw new Error(`Valhalla could not calculate a walking route (${response.status}).`);
+  }
+  const data = (await response.json()) as {
+    trip?: {
+      legs?: Array<{
+        shape?: string;
+        summary?: { length?: number };
+      }>;
+      status_message?: string;
+    };
+  };
+  const leg = data.trip?.legs?.[0];
+  if (!leg?.shape) {
+    throw new Error(data.trip?.status_message || "Valhalla returned an empty walking route.");
+  }
+  const path = decodePolyline(leg.shape, 6);
+  if (path.length < 2) throw new Error("Valhalla returned an incomplete walking route.");
+  if (path.some((coordinate) => !isInsideCampus(coordinate))) {
+    throw new Error("The route leaves the UNILAG campus area. Choose another campus destination.");
+  }
+  const routeStart = path[0];
+  const routeEnd = path[path.length - 1];
+  const startConnectorLength = metersBetween(start, routeStart);
+  const endConnectorLength = metersBetween(routeEnd, end);
+  if (startConnectorLength > 150 || endConnectorLength > 150) {
+    throw new Error("The route could not connect to the exact start or destination.");
+  }
+  const connectors: [Coordinate, Coordinate][] = [];
+  if (startConnectorLength > 2) connectors.push([start, routeStart]);
+  if (endConnectorLength > 2) connectors.push([routeEnd, end]);
+  const networkDistance =
+    leg.summary?.length !== undefined
+      ? leg.summary.length * 1_000
+      : path.slice(1).reduce(
+          (total, coordinate, index) =>
+            total + metersBetween(path[index], coordinate),
+          0,
+        );
+
+  return {
+    path,
+    connectors,
+    distance: networkDistance + startConnectorLength + endConnectorLength,
+    provider: "Valhalla",
+  };
+}
+
 export async function findWalkingRoute(
   start: Coordinate,
   end: Coordinate,
   signal: AbortSignal,
 ): Promise<RouteResult> {
   const apiKey = import.meta.env.VITE_ORS_API_KEY?.trim();
-  return apiKey
-    ? routeOnOpenRouteService(start, end, apiKey, signal)
-    : routeOnOpenStreetMap(start, end, signal);
+  const providers: Array<() => Promise<RouteResult>> = [];
+  if (apiKey) providers.push(() => routeOnOpenRouteService(start, end, apiKey, signal));
+  providers.push(
+    () => routeOnValhalla(start, end, signal),
+    () => routeOnOpenStreetMap(start, end, signal),
+  );
+
+  const errors: string[] = [];
+  for (const getRoute of providers) {
+    try {
+      return await getRoute();
+    } catch (error) {
+      if (signal.aborted) throw error;
+      errors.push(error instanceof Error ? error.message : "Unknown routing error.");
+    }
+  }
+  throw new Error(errors.join(" "));
 }
 
 export function distanceBetween(first: Coordinate, second: Coordinate): number {

@@ -55,15 +55,17 @@ supported; an exact abbreviation match is returned ahead of typo suggestions.
 
 Set `VITE_ORS_API_KEY` in a local `.env` file to use OpenRouteService's
 `foot-walking` profile with shortest-distance preference. Without a key, the app
-loads OSM pedestrian ways from Overpass and finds the shortest connected path
-with Dijkstra's algorithm. Dashed connectors join the selected start and
-destination to the route when a routing service's path does not end at the
+uses the public Valhalla pedestrian router, with OSM pedestrian ways from
+Overpass as a fallback using Dijkstra's algorithm. This avoids making an
+Overpass query the primary route request, as public Overpass instances can
+return gateway timeouts under load. Dashed connectors join the selected start
+and destination to the route when a routing service's path does not end at the
 selected point. Routes are limited to the campus bounds in `src/data/places.ts`.
 
-The fallback asks Overpass for `footway`, `pedestrian`, `path`, and other
-walkable highway types in the campus area. Overpass availability and OSM map
-coverage vary; route failures are surfaced in the interface rather than
-presented as a successful route.
+The final fallback asks Overpass for `footway`, `pedestrian`, `path`, and other
+walkable highway types in the campus area. Valhalla, Overpass availability, and
+OSM map coverage can vary; failures from the routing providers are surfaced in
+the interface rather than presented as a successful route.
 
 ## Build
 
